@@ -163,7 +163,7 @@ const askQuestion = async () => {
 				const resultOne =
 					await vectorStore.similaritySearch(
 						question,
-						4
+						7
 					);
 
 				let formattedSources =
@@ -174,8 +174,6 @@ const askQuestion = async () => {
 					formattedSources = `${formattedSources}Sources [${i}]:\n${el.pageContent}\n\n`;
 					i++;
 				});
-
-				console.log(formattedSources);
 
 				const configuration = new Configuration({
 					apiKey: process.env.OPENAI_API_KEY,
@@ -197,10 +195,37 @@ const askQuestion = async () => {
 						],
 					});
 
-				console.log(
+				const content =
 					response.data.choices[0].message
-						?.content
+						?.content;
+				console.log(content);
+
+				// Extract the source numbers cited in the response
+				const citedSources = new Set(
+					Array.from(
+						content.matchAll(/\[(\d+)\]/g),
+						(m) => parseInt(m[1])
+					)
 				);
+
+				// Print the cited sources after the main output
+				console.log("\nSources:");
+				for (const sourceNumber of citedSources) {
+					let modifiedMetadata = {
+						index: sourceNumber,
+						text_en: resultOne[
+							sourceNumber - 1
+						].pageContent,
+						...resultOne[sourceNumber - 1]
+							.metadata,
+					};
+
+					console.log(
+						JSON.stringify(
+							modifiedMetadata
+						) + "\n"
+					);
+				}
 
 				askQuestion();
 			}
