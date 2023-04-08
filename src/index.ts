@@ -8,19 +8,60 @@ import "dotenv/config";
 import fs from "fs";
 import readline from "readline";
 import { getTranscript } from "./get_transcript";
-// import { CSVLoader } from "../retrievalqa/csvloader";
+import { CSVLoader } from "./csvloader";
 //import { CSVLoader } from "langchain/document_loaders";
 
-const url = "https://en.wikipedia.org/wiki/Anwar_Ibrahim";
-const videoUrl = "https://www.youtube.com/watch?v=-chxOl0zQwQ";
+const url =
+	"https://pocketbase.io/docs/going-to-production/#deployment-strategies";
+const videoUrl = "";
+const hadith = true;
 // Save the vector store to a directory
-const directory = `stores/${url}`;
+let directory = `stores/${url}`;
 let vectorStore;
 
 export const run = async () => {
-	if (videoUrl) {
+	if (hadith) {
+		directory = "stores/all_hadiths_clean";
+		try {
+			await fs.promises.access(directory);
+			console.log("found store");
+			// Load the vector store from the directory if it exists
+			console.log("loading store...");
+			vectorStore = await HNSWLib.load(
+				directory,
+				new OpenAIEmbeddings()
+			);
+		} catch (error) {
+			const loader = new CSVLoader(
+				"src/all_hadiths_clean.csv",
+				"text_en",
+				[
+					"id",
+					"text_ar",
+					"source",
+					"hadith_id",
+					"hadith_no",
+					"chapter",
+					"chapter_no",
+					"chain_indx",
+				]
+			);
+			const output = await loader.loadAndSplit();
+			console.log(output);
+
+			console.log("creating vector store...");
+			vectorStore = await HNSWLib.fromDocuments(
+				output,
+				new OpenAIEmbeddings()
+			);
+			console.log("saving vector store...");
+			// Save the vector store to the directory
+			await vectorStore.save(directory);
+			console.log("vector store saved.");
+		}
+	} else if (videoUrl) {
 		const videoId = videoUrl.split("?")[1].split("=")[1];
-		const directory = `stores/youtube/${videoId}`
+		directory = `stores/youtube/${videoId}`;
 		try {
 			await fs.promises.access(directory);
 			// Load the vector store from the directory if it exists
@@ -36,8 +77,8 @@ export const run = async () => {
 				return;
 			}
 			const splitter = new RecursiveCharacterTextSplitter({
-				chunkSize: 256,
-				chunkOverlap: 10,
+				chunkSize: 512,
+				chunkOverlap: 20,
 			});
 
 			const output = await splitter.createDocuments([
@@ -122,11 +163,11 @@ const askQuestion = async () => {
 				const resultOne =
 					await vectorStore.similaritySearch(
 						question,
-						7
+						4
 					);
 
 				let formattedSources =
-					"Provide a 2-3 sentence answer to the query based on the following sources. Be original, concise, accurate, and helpful. Cite sources as [1] or [2] or [3] after each sentence (not just the very end) to back up your answer, the question is at the end, answer using the language and style of the question at the end. (Ex: Correct: [1], Correct: [2][3], Incorrect: [1, 2]).\n\n";
+					"Provide a 2-3 sentence answer to the query with context solely based on the following sources. Be original, concise, accurate, and helpful. Cite sources as [1] or [2] or [3] after each sentence (not just the very end) to back up your answer. (Ex: Correct: [1], Correct: [2][3], Incorrect: [1, 2]).\n\n";
 
 				let i = 1;
 				await resultOne.forEach((el) => {
@@ -146,10 +187,12 @@ const askQuestion = async () => {
 						model: "gpt-3.5-turbo",
 						messages: [
 							{
+								role: "system",
+								content: formattedSources,
+							},
+							{
 								role: "user",
-								content:
-									formattedSources +
-									question,
+								content: question,
 							},
 						],
 					});
